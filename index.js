@@ -24,12 +24,12 @@ const spamResponses = [
 
 const getRandomElement = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
-// Секретарь перехватывает сообщения через событие 'business_message'
 bot.on('business_message', async (ctx) => {
     const msg = ctx.update.business_message;
     
     if (msg && msg.from && msg.from.id === TARGET_ID) {
-        const chatId = msg.chat.id; // ID чата, куда пришло сообщение
+        const chatId = msg.chat.id; 
+        const connectionId = msg.business_connection_id; // Вытаскиваем ID подключения секретаря
         
         const now = moment().tz(TIMEZONE);
         const currentHour = now.hour();
@@ -40,10 +40,12 @@ bot.on('business_message', async (ctx) => {
         }
         userSpamCount[TARGET_ID]++;
 
-        // Функция отправки через стандартный sendMessage в целевой чат
+        // Функция отправки с ОБЯЗАТЕЛЬНЫМ флагом business_connection_id
         const sendSecretarReply = async (text) => {
             try {
-                await ctx.telegram.sendMessage(chatId, text);
+                await ctx.telegram.sendMessage(chatId, text, {
+                    business_connection_id: connectionId // Вот тут магия! Говорим ТГ, что мы секретарствуем
+                });
             } catch (err) {
                 console.error("Ошибка отправки через режим Секретаря:", err);
             }
@@ -62,7 +64,7 @@ bot.on('business_message', async (ctx) => {
             await sendSecretarReply(spamResponse);
         }
 
-        // Таймер сброса спам-счётчика через 15 минут тишины
+        // Таймер сброса спам-счётчика через 15 минут
         clearTimeout(userSpamCount[`timeout_${TARGET_ID}`]);
         userSpamCount[`timeout_${TARGET_ID}`] = setTimeout(() => {
             userSpamCount[TARGET_ID] = 0;
