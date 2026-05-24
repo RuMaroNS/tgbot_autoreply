@@ -36,7 +36,9 @@ async function checkProfileName() {
         
         const botInfo = await bot.telegram.getMe();
         let currentBotName = botInfo.first_name || "Автоответчик робона";
-        const isSleepTime = (currentHour >= 2 || currentHour < 9);
+        
+        // СТРОГО: больше или равно 2 И меньше 9 утра
+        const isSleepTime = (currentHour >= 2 && currentHour < 9);
 
         if (isSleepTime && !isSleepPrefixSet) {
             if (!currentBotName.includes('[Я Сплю]')) {
@@ -89,7 +91,8 @@ bot.on('business_message', async (ctx) => {
         };
 
         if (userSpamCount[userId] <= 2) {
-            if (currentHour >= 2 || currentHour < 9) {
+            // И здесь СТРОГО проверка на реальную ночь через логическое И
+            if (currentHour >= 2 && currentHour < 9) {
                 let response = getRandomElement(sleepResponses).replace('{name}', senderName).replace('{time}', formattedTime);
                 await sendSecretarReply(response);
             } else {
