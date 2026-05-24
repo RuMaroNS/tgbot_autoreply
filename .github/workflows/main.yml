@@ -1,0 +1,28 @@
+name: Telegram Business Bot
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: # Позволит запускать бота вручную кнопкой
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/latest@v4
+      with:
+        node-version: '20'
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Run Autoreply Bot
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        TARGET_USER_ID: ${{ secrets.TARGET_USER_ID }}
+      run: node index.js
