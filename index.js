@@ -3,78 +3,138 @@ const { Telegraf } = require('telegraf');
 const moment = require('moment-timezone');
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
-const TARGET_ID = Number(process.env.TARGET_USER_ID);
 
 const bot = new Telegraf(BOT_TOKEN);
 const TIMEZONE = 'Asia/Krasnoyarsk';
+
+// Объект для хранения спам-счётчиков разных пользователей
+// Структура будет такой: { "USER_ID": count }
 const userSpamCount = {};
 
+// База ответов ДНЕМ (с 09:00 до 02:00)
 const busyResponses = [
-    "Здаров, я сейчас занят делами, загляну позже. Текущее время у меня: {time}",
-    "Привет! Я сейчас не у компа, ворвусь в сеть как освобожусь. У меня сейчас {time}",
-    "На связи, но отошел по работе. Моё время: {time}. Напиши суть, отвечу позже!"
+    "{name}, здаров! Я сейчас занят делами, загляну позже. Текущее время у меня: {time}",
+    "Привет, {name}! Я сейчас не у компа, ворвусь в сеть как освобожусь. У меня сейчас {time}",
+    "{name}, на связи, но отошел по работе. Моё время: {time}. Напиши суть, отвечу позже!"
 ];
 
+// База ответов НОЧЬЮ (когда ты спишь с 02:00 до 09:00)
+const sleepResponses = [
+    "Здаров, {name}. Я уже сто процентов сплю, так как у меня ночь. Время на часах: {time}. Отвечу как проснусь!",
+    "Привет, {name}! Сейчас я сплю (моё время: {time}). Не теряй, утром буду в сети.",
+    "{name}, у меня уже глухая ночь ({time}), так что я дрыхну. Напиши, что хотел, прочитаю утром!"
+];
+
+// База жестких ответов при флуде (больше 2 сообщений)
 const spamResponses = [
-    "Братан, я ведь уже ясно сказал, Робона нет в сети — он либо занят, либо спит.",
-    "Перестань писать, я всего лишь бот, обслуживающий чат, пока Робона нет на месте.",
-    "Хватит флудить, лимит терпения ИИ на исходе. Сказано же — занят или спит!",
-    "Твои сообщения доставлены, но Робон от этого быстрее не проснется/не освободится. Жди."
+    "{name}, братан, я ведь уже ясно сказал — Робона нет на месте. Он либо занят, либо спит.",
+    "Перестань писать, {name}. Я всего лишь бот-секретарь. Сказано же — занят или спит!",
+    "Хватит флудить, {name}, лимит терпения ИИ на исходе. Жди ответа.",
+    "Твои сообщения доставлены, {name}, но от флуда Робон быстрее не освободится и не проснется. Отдыхай."
 ];
 
 const getRandomElement = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
+// Переменная-флаг, чтобы не переименовывать профиль каждую секунду
+let isSleepPrefixSet = false;
+
+// Функция проверки времени и обновления твоего имени в профиле
+async function checkProfileName() {
+    try {
+        const now = moment().tz(TIMEZONE);
+        const currentHour = now.hour();
+        
+        const botInfo = await bot.telegram.getMe();
+        let currentBotName = botInfo.first_name || "Автоответчик робона";
+
+        // Время спать: с 2 ночи до 9 утра
+        const isSleepTime = (currentHour >= 2 && currentHour < 9);
+
+        if (isSleepTime && !isSleepPrefixSet) {
+            if (!currentBotName.includes('[Я Сплю]')) {
+                const newName = `${currentBotName} [Я Сплю]`;
+                await bot.telegram.callApi('setMyName', { name: newName });
+                console.log(`[Профиль] Установлен статус сна. Новое имя: ${newName}`);
+            }
+            isSleepPrefixSet = true;
+        } else if (!isSleepTime && isSleepPrefixSet) {
+            if (currentBotName.includes('[Я Сплю]')) {
+                const newName = currentBotName.replace(' [Я Сплю]', '').trim();
+                await bot.telegram.callApi('setMyName', { name: newName });
+                console.log(`[Профиль] Проснулся! Префикс убран. Новое имя: ${newName}`);
+            }
+            isSleepPrefixSet = false;
+        }
+    } catch (err) {
+        console.error("Не удалось обновить имя в профиле:", err);
+    }
+}
+
+// Запускаем проверку времени каждые 60 секунд
+setInterval(checkProfileName, 60000);
+
+
+// Обработчик сообщений секретаря
 bot.on('business_message', async (ctx) => {
     const msg = ctx.update.business_message;
     
-    if (msg && msg.from && msg.from.id === TARGET_ID) {
+    // Теперь реагируем на ЛЮБОЕ сообщение, если в нём есть отправитель
+    if (msg && msg.from) {
         const chatId = msg.chat.id; 
-        const connectionId = msg.business_connection_id; // Вытаскиваем ID подключения секретаря
+        const connectionId = msg.business_connection_id;
+        const userId = msg.from.id; // Уникальный ID написавшего нам человека
+        
+        // Достаем имя того, кто пишет
+        const senderName = msg.from.first_name || "Бро";
         
         const now = moment().tz(TIMEZONE);
         const currentHour = now.hour();
         const formattedTime = now.format('HH:mm');
 
-        if (!userSpamCount[TARGET_ID]) {
-            userSpamCount[TARGET_ID] = 0;
+        // Инициализируем счётчик конкретно для ЭТОГО пользователя
+        if (!userSpamCount[userId]) {
+            userSpamCount[userId] = 0;
         }
-        userSpamCount[TARGET_ID]++;
+        userSpamCount[userId]++;
 
-        // Функция отправки с ОБЯЗАТЕЛЬНЫМ флагом business_connection_id
+        // Обертка для отправки
         const sendSecretarReply = async (text) => {
             try {
                 await ctx.telegram.sendMessage(chatId, text, {
-                    business_connection_id: connectionId // Вот тут магия! Говорим ТГ, что мы секретарствуем
+                    business_connection_id: connectionId
                 });
             } catch (err) {
                 console.error("Ошибка отправки через режим Секретаря:", err);
             }
         };
 
-        // Логика подбора фраз
-        if (userSpamCount[TARGET_ID] <= 2) {
+        // Логика выбора сообщений на основе личного счётчика пользователя
+        if (userSpamCount[userId] <= 2) {
             if (currentHour >= 2 && currentHour < 9) {
-                await sendSecretarReply(`Здаров, возможно я занят или сплю, сейчас время у меня ${formattedTime}`);
+                let response = getRandomElement(sleepResponses)
+                    .replace('{name}', senderName)
+                    .replace('{time}', formattedTime);
+                await sendSecretarReply(response);
             } else {
-                let response = getRandomElement(busyResponses).replace('{time}', formattedTime);
+                let response = getRandomElement(busyResponses)
+                    .replace('{name}', senderName)
+                    .replace('{time}', formattedTime);
                 await sendSecretarReply(response);
             }
         } else {
-            const spamResponse = getRandomElement(spamResponses);
+            // Если именно этот пользователь флудит больше 2 раз
+            const spamResponse = getRandomElement(spamResponses).replace('{name}', senderName);
             await sendSecretarReply(spamResponse);
         }
 
-        // Таймер сброса спам-счётчика через 15 минут
-        clearTimeout(userSpamCount[`timeout_${TARGET_ID}`]);
-        userSpamCount[`timeout_${TARGET_ID}`] = setTimeout(() => {
-            userSpamCount[TARGET_ID] = 0;
+        // Сброс спам-счётчика конкретного человека через 15 минут тишины ОТ НЕГО
+        clearTimeout(userSpamCount[`timeout_${userId}`]);
+        userSpamCount[`timeout_${userId}`] = setTimeout(() => {
+            userSpamCount[userId] = 0;
         }, 15 * 60 * 1000);
     }
 });
 
 bot.launch().then(() => {
-    console.log('Бот-секретарь успешно запущен!');
-});
-
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
+    console.log('Бот-секретарь для ВСЕХ чатов успешно запущен!');
+    check
