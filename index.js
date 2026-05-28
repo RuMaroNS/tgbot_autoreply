@@ -41,7 +41,7 @@ function isItNightTime() {
     return (currentHour >= 2 && currentHour < 9);
 }
 
-// Изменение имени ТВОЕГО личного профиля через Business API
+// Изменение имени ТВОЕГО личного профиля через правильный метод API
 async function updateProfileName() {
     if (!activeBusinessConnectionId) {
         console.log("[Профиль] Жду первого входящего сообщения в бизнес-чатах, чтобы перехватить управление твоим профилем...");
@@ -55,8 +55,8 @@ async function updateProfileName() {
         const baseName = "Просто человек"; 
         const newName = shouldSleep ? `${baseName} [Я сплю]` : baseName;
 
-        // Метод Telegram Business для смены имени твоего аккаунта
-        await bot.telegram.callApi('setUserBusinessName', {
+        // Исправлено: используем стандартный setMyName, но прокидываем business_connection_id
+        await bot.telegram.callApi('setMyName', {
             business_connection_id: activeBusinessConnectionId,
             name: newName
         });
